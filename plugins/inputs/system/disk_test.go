@@ -1,13 +1,40 @@
 package system
 
 import (
+	"os"
 	"testing"
+	"time"
 
 	"github.com/influxdata/telegraf/testutil"
 	"github.com/shirou/gopsutil/disk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type MockFileInfo struct{}
+
+func (m *MockFileInfo) Name() string {
+	return ""
+}
+func (m *MockFileInfo) Size() int64 {
+	return 0
+}
+
+func (m *MockFileInfo) Mode() os.FileMode {
+	return 0
+}
+
+func (m *MockFileInfo) ModTime() time.Time {
+	return time.Now()
+}
+
+func (m *MockFileInfo) IsDir() bool {
+	return true
+}
+
+func (m *MockFileInfo) Sys() interface{} {
+	return nil
+}
 
 func TestDiskStats(t *testing.T) {
 	var mps MockPS
@@ -74,9 +101,18 @@ func TestDiskStats(t *testing.T) {
 		},
 	}
 
-	mps.On("DiskUsage", []string(nil), []string(nil)).Return(duAll, psAll, nil)
-	mps.On("DiskUsage", []string{"/", "/dev"}, []string(nil)).Return(duFiltered, psFiltered, nil)
-	mps.On("DiskUsage", []string{"/", "/home"}, []string(nil)).Return(duAll, psAll, nil)
+	// mps.On("DiskUsage", []string(nil), []string(nil)).Return(duAll, psAll, nil)
+	// mps.On("DiskUsage", []string{"/", "/dev"}, []string(nil)).Return(duFiltered, psFiltered, nil)
+	// mps.On("DiskUsage", []string{"/", "/home"}, []string(nil)).Return(duAll, psAll, nil)
+
+	mps.On("PsDiskPartitions", true).Return(psAll, nil)
+	mps.On("OsGetenv", "HOST_MOUNT_PREFIX").Return("")
+
+	mps.On("OsStat", "/").Return(MockFileInfo{}, nil)
+	mps.On("OsStat", "/home").Return(MockFileInfo{}, nil)
+
+	mps.On("PsDiskUsage", "/").Return(duAll[0], nil)
+	mps.On("PsDiskUsage", "/home").Return(duAll[1], nil)
 
 	err = (&DiskStats{ps: &mps}).Gather(&acc)
 	require.NoError(t, err)
