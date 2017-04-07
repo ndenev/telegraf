@@ -224,6 +224,9 @@ func TestDiskStatsLower(t *testing.T) {
 		return ""
 	}
 	originalOsStat = func(path string) (os.FileInfo, error) {
+		if path != "/" || path != "/home" {
+			return nil, errors.New("not mocked")
+		}
 		return &MockFileInfo{}, nil
 	}
 	err = (&DiskStats{ps: ps}).Gather(&acc)
