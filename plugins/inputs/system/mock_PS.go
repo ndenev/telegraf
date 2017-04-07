@@ -1,6 +1,8 @@
 package system
 
 import (
+	"os"
+
 	"github.com/stretchr/testify/mock"
 
 	"github.com/shirou/gopsutil/cpu"
@@ -92,6 +94,41 @@ func (m *MockPS) NetConnections() ([]net.ConnectionStat, error) {
 	ret := m.Called()
 
 	r0 := ret.Get(0).([]net.ConnectionStat)
+	r1 := ret.Error(1)
+
+	return r0, r1
+}
+
+func (m *MockPS) PsDiskPartitions(all bool) ([]disk.PartitionStat, error) {
+	ret := m.Called()
+
+	r0 := ret.Get(0).([]disk.PartitionStat)
+	r1 := ret.Error(1)
+
+	return r0, r1
+}
+
+func (m *MockPS) PsDiskUsage(path string) (*disk.UsageStat, error) {
+	ret := m.Called()
+
+	r0 := ret.Get(0).(*disk.UsageStat)
+	r1 := ret.Error(1)
+
+	return r0, r1
+}
+
+func (m *MockPS) OsGetenv(key string) string {
+	ret := m.Called()
+
+	r0 := ret.Get(0).(string)
+
+	return r0
+}
+
+func (m *MockPS) OsStat(name string) (os.FileInfo, error) {
+	ret := m.Called()
+
+	r0 := ret.Get(0).(os.FileInfo)
 	r1 := ret.Error(1)
 
 	return r0, r1
