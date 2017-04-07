@@ -12,6 +12,13 @@ import (
 	"github.com/shirou/gopsutil/net"
 )
 
+var (
+	PsDiskPartitions = disk.Partitions
+	PsDiskUsage      = disk.Usage
+	OsGetenv         = os.Getenv
+	OsStat           = os.Stat
+)
+
 type PS interface {
 	CPUTimes(perCPU, totalCPU bool) ([]cpu.TimesStat, error)
 	DiskUsage(mountPointFilter []string, fstypeExclude []string) ([]*disk.UsageStat, []*disk.PartitionStat, error)
@@ -21,10 +28,6 @@ type PS interface {
 	VMStat() (*mem.VirtualMemoryStat, error)
 	SwapStat() (*mem.SwapMemoryStat, error)
 	NetConnections() ([]net.ConnectionStat, error)
-	PsDiskPartitions(all bool) ([]disk.PartitionStat, error)
-	PsDiskUsage(path string) (*disk.UsageStat, error)
-	OsGetenv(key string) string
-	OsStat(name string) (os.FileInfo, error)
 }
 
 func add(acc telegraf.Accumulator,
@@ -59,7 +62,7 @@ func (s *systemPS) DiskUsage(
 	mountPointFilter []string,
 	fstypeExclude []string,
 ) ([]*disk.UsageStat, []*disk.PartitionStat, error) {
-	parts, err := s.PsDiskPartitions(true)
+	parts, err := PsDiskPartitions(true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,9 +92,9 @@ func (s *systemPS) DiskUsage(
 				continue
 			}
 		}
-		mountpoint := s.OsGetenv("HOST_MOUNT_PREFIX") + p.Mountpoint
-		if _, err := s.OsStat(mountpoint); err == nil {
-			du, err := s.PsDiskUsage(mountpoint)
+		mountpoint := OsGetenv("HOST_MOUNT_PREFIX") + p.Mountpoint
+		if _, err := OsStat(mountpoint); err == nil {
+			du, err := PsDiskUsage(mountpoint)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -139,20 +142,4 @@ func (s *systemPS) VMStat() (*mem.VirtualMemoryStat, error) {
 
 func (s *systemPS) SwapStat() (*mem.SwapMemoryStat, error) {
 	return mem.SwapMemory()
-}
-
-func (s *systemPS) PsDiskPartitions(all bool) ([]disk.PartitionStat, error) {
-	return disk.Partitions(all)
-}
-
-func (s *systemPS) OsGetenv(key string) string {
-	return os.Getenv(key)
-}
-
-func (s *systemPS) OsStat(name string) (os.FileInfo, error) {
-	return os.Stat(name)
-}
-
-func (s *systemPS) PsDiskUsage(path string) (*disk.UsageStat, error) {
-	return disk.Usage(path)
 }

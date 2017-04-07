@@ -1,6 +1,7 @@
 package system
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -101,18 +102,9 @@ func TestDiskStats(t *testing.T) {
 		},
 	}
 
-	// mps.On("DiskUsage", []string(nil), []string(nil)).Return(duAll, psAll, nil)
-	// mps.On("DiskUsage", []string{"/", "/dev"}, []string(nil)).Return(duFiltered, psFiltered, nil)
-	// mps.On("DiskUsage", []string{"/", "/home"}, []string(nil)).Return(duAll, psAll, nil)
-
-	mps.On("PsDiskPartitions", true).Return(psAll, nil)
-	mps.On("OsGetenv", "HOST_MOUNT_PREFIX").Return("")
-
-	mps.On("OsStat", "/").Return(MockFileInfo{}, nil)
-	mps.On("OsStat", "/home").Return(MockFileInfo{}, nil)
-
-	mps.On("PsDiskUsage", "/").Return(duAll[0], nil)
-	mps.On("PsDiskUsage", "/home").Return(duAll[1], nil)
+	mps.On("DiskUsage", []string(nil), []string(nil)).Return(duAll, psAll, nil)
+	mps.On("DiskUsage", []string{"/", "/dev"}, []string(nil)).Return(duFiltered, psFiltered, nil)
+	mps.On("DiskUsage", []string{"/", "/home"}, []string(nil)).Return(duAll, psAll, nil)
 
 	err = (&DiskStats{ps: &mps}).Gather(&acc)
 	require.NoError(t, err)
@@ -161,6 +153,126 @@ func TestDiskStats(t *testing.T) {
 	// We should see all the diskpoints as MountPoints includes both
 	// / and /home
 	err = (&DiskStats{ps: &mps, MountPoints: []string{"/", "/home"}}).Gather(&acc)
+	assert.Equal(t, 2*expectedAllDiskMetrics+7, acc.NFields())
+}
+
+func TestDiskStatsLower(t *testing.T) {
+	ps := &systemPS{}
+	var acc testutil.Accumulator
+	var err error
+
+	psAll := []disk.PartitionStat{
+		{
+			Device:     "/dev/sda",
+			Mountpoint: "/",
+			Fstype:     "ext4",
+			Opts:       "",
+		},
+		{
+			Device:     "/dev/sdb",
+			Mountpoint: "/home",
+			Fstype:     "ext4",
+			Opts:       "",
+		},
+	}
+	duAll := []*disk.UsageStat{
+		{
+			Path:        "/",
+			Fstype:      "ext4",
+			Total:       128,
+			Free:        23,
+			Used:        100,
+			InodesTotal: 1234,
+			InodesFree:  234,
+			InodesUsed:  1000,
+		},
+		{
+			Path:        "/home",
+			Fstype:      "ext4",
+			Total:       256,
+			Free:        46,
+			Used:        200,
+			InodesTotal: 2468,
+			InodesFree:  468,
+			InodesUsed:  2000,
+		},
+	}
+	originalPsPartitions := PsDiskPartitions
+	originalPsDiskUsage := PsDiskUsage
+	originalOsGetenv := OsGetenv
+	originalOsStat := OsStat
+	defer func() {
+		PsDiskPartitions = originalPsPartitions
+		PsDiskUsage = originalPsDiskUsage
+		OsGetenv = originalOsGetenv
+		OsStat = originalOsStat
+	}()
+	PsDiskPartitions = func(_ bool) ([]disk.PartitionStat, error) {
+		// fmt.Fprintln(os.Stderr, "PsDiskPartitions called")
+		return psAll, nil
+	}
+	PsDiskUsage = func(path string) (*disk.UsageStat, error) {
+		// fmt.Fprintf(os.Stderr, "PsDiskUsage called for : %s\n", path)
+		if path == "/" {
+			return duAll[0], nil
+		} else if path == "/home" {
+			return duAll[1], nil
+		}
+		return nil, errors.New("not mocked")
+	}
+	originalOsGetenv = func(_ string) string {
+		return ""
+	}
+	originalOsStat = func(path string) (os.FileInfo, error) {
+		return &MockFileInfo{}, nil
+	}
+	err = (&DiskStats{ps: ps}).Gather(&acc)
+	require.NoError(t, err)
+
+	numDiskMetrics := acc.NFields()
+	expectedAllDiskMetrics := 14
+	assert.Equal(t, expectedAllDiskMetrics, numDiskMetrics)
+
+	tags1 := map[string]string{
+		"path":   "/",
+		"fstype": "ext4",
+		"device": "sda",
+	}
+	tags2 := map[string]string{
+		"path":   "/home",
+		"fstype": "ext4",
+		"device": "sdb",
+	}
+
+	fields1 := map[string]interface{}{
+		"total":        uint64(128),
+		"used":         uint64(100),
+		"free":         uint64(23),
+		"inodes_total": uint64(1234),
+		"inodes_free":  uint64(234),
+		"inodes_used":  uint64(1000),
+		"used_percent": float64(81.30081300813008),
+	}
+	fields2 := map[string]interface{}{
+		"total":        uint64(256),
+		"used":         uint64(200),
+		"free":         uint64(46),
+		"inodes_total": uint64(2468),
+		"inodes_free":  uint64(468),
+		"inodes_used":  uint64(2000),
+		"used_percent": float64(81.30081300813008),
+	}
+	acc.AssertContainsTaggedFields(t, "disk", fields1, tags1)
+	acc.AssertContainsTaggedFields(t, "disk", fields2, tags2)
+
+	// We expect 6 more DiskMetrics to show up with an explicit match on "/"
+	// and /home not matching the /dev in MountPoints
+	err = (&DiskStats{ps: ps, MountPoints: []string{"/", "/dev"}}).Gather(&acc)
+	assert.Equal(t, expectedAllDiskMetrics+7, acc.NFields())
+
+	// We should see all the diskpoints as MountPoints includes both
+	// / and /home
+	err = (&DiskStats{ps: ps, MountPoints: []string{"/", "/home"}}).Gather(&acc)
 	assert.Equal(t, 2*expectedAllDiskMetrics+7, acc.NFields())
 }
 
